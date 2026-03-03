@@ -51,8 +51,12 @@ impl Serialize for Request {
                 SerializeStructVariant::end(state)
             }
             Request::Init => {
-                let state = Serializer::serialize_struct_variant(serializer, "Request", 5u32, "Init", 0)?;
+                let state = Serializer::serialize_struct_variant(serializer, "Request", 6u32, "Init", 0)?;
                 SerializeStructVariant::end(state)
+            }
+            #[cfg(feature = "std")]
+            Request::FileSystem(ref op) => {
+                Serializer::serialize_newtype_variant(serializer, "Request", 7u32, "FileSystem", op)
             }
         }
     }
@@ -71,6 +75,8 @@ impl<'de> Deserialize<'de> for Request {
             Info,
             Exit,
             Init,
+            #[cfg(feature = "std")]
+            FileSystem,
         }
         struct RequestFieldVisitor;
         impl<'de> Visitor<'de> for RequestFieldVisitor {
@@ -90,6 +96,8 @@ impl<'de> Deserialize<'de> for Request {
                     "Info" => Ok(RequestField::Info),
                     "Exit" => Ok(RequestField::Exit),
                     "Init" => Ok(RequestField::Init),
+                    #[cfg(feature = "std")]
+                    "FileSystem" => Ok(RequestField::FileSystem),
                     _ => Err(SerdeError::unknown_variant(value, VARIANTS)),
                 }
             }
@@ -649,10 +657,25 @@ impl<'de> Deserialize<'de> for Request {
                             },
                         )
                     }
+                    #[cfg(feature = "std")]
+                    (RequestField::FileSystem, variant) => {
+                        let op: fs::FsOp = VariantAccess::newtype_variant(variant)?;
+                        Ok(Request::FileSystem(op))
+                    }
                 }
             }
         }
-        const VARIANTS: &'static [&'static str] = &["Connect", "Bind", "Accept", "Close", "Info", "Exit", "Init"];
+        const VARIANTS: &'static [&'static str] = &[
+            "Connect",
+            "Bind",
+            "Accept",
+            "Close",
+            "Info",
+            "Exit",
+            "Init",
+            #[cfg(feature = "std")]
+            "FileSystem",
+        ];
         Deserializer::deserialize_enum(
             deserializer,
             "Request",

@@ -52,6 +52,8 @@ pub enum Request {
         code: i32,
     },
     Init,
+    #[cfg(feature = "std")]
+    FileSystem(fs::FsOp),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -300,3 +302,6 @@ mod test;
 
 #[cfg(feature="serde")]
 mod serde_impls;
+
+#[cfg(feature = "std")]
+mod fs;
