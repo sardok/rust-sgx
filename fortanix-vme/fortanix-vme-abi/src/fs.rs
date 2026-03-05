@@ -7,10 +7,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum FsOpRequest {
     Create,
+    GetAttr {
+        ino: u64,
+    },
     Mkdir,
     Read,
     ReadDir {
         ino: u64,
+    },
+    SetAttr {
+        ino: u64,
+        metadata: Vec<u8>,
     },
     Write,
 }
@@ -57,6 +64,9 @@ pub struct FsEntry {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum FsOpResponse {
+    GetAttr {
+        entry: FsEntry,
+    },
     ReadDir {
         entries: Vec<FsEntry>,
     }
