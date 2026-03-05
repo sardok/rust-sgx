@@ -53,7 +53,7 @@ pub enum Request {
     },
     Init,
     #[cfg(feature = "std")]
-    FileSystem(fs::FsOp),
+    FileSystem(fs::FsOpRequest),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -304,4 +304,4 @@ mod test;
 mod serde_impls;
 
 #[cfg(feature = "std")]
-mod fs;
+pub mod fs;

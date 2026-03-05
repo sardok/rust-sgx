@@ -659,7 +659,7 @@ impl<'de> Deserialize<'de> for Request {
                     }
                     #[cfg(feature = "std")]
                     (RequestField::FileSystem, variant) => {
-                        let op: fs::FsOp = VariantAccess::newtype_variant(variant)?;
+                        let op: fs::FsOpRequest = VariantAccess::newtype_variant(variant)?;
                         Ok(Request::FileSystem(op))
                     }
                 }

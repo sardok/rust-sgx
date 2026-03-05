@@ -25,6 +25,7 @@ use tokio::sync::RwLock;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_vsock::{self, VsockAddr, VsockListener, VsockStream, VMADDR_CID_ANY, VMADDR_CID_LOCAL};
 
+mod fs;
 mod platforms;
 pub use platforms::amdsevsnp::{
     AmdSevVm, AmdSevVmRunArgs, CommonVmRunArgs, IdBlockArgs, RunningVm, SimulatorVmRunArgs,
@@ -801,6 +802,7 @@ impl ServerState {
                 error!("exit error: {:?}", e);
                 Err(e)
             }),
+            Request::FileSystem(_) => unimplemented!(),
         }
     }
 }
