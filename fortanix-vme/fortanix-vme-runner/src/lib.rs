@@ -31,7 +31,9 @@ pub use platforms::amdsevsnp::{
     AmdSevVm, AmdSevVmRunArgs, CommonVmRunArgs, IdBlockArgs, RunningVm, SimulatorVmRunArgs,
     VmSimulator,
 };
-pub use platforms::{EnclaveSimulator, EnclaveSimulatorArgs, NitroEnclaves, Platform};
+pub use platforms::{
+    EnclaveSimulator, EnclaveSimulatorArgs, NitroEnclaves, Platform, Standalone, StandaloneArgs,
+};
 
 pub use confidential_vm_blobs::{AMD_SEV_OVMF_PATH, VANILLA_OVMF_PATH};
 pub use fortanix_vme_eif::{read_eif_with_metadata, ReadEifResult};

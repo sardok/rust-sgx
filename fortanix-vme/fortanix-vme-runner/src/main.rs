@@ -7,7 +7,7 @@ use enclave_runner::EnclaveBuilder;
 use fortanix_vme_runner::{
     read_eif_with_metadata, AmdSevVm, AmdSevVmRunArgs, CommonVmRunArgs,
     EnclaveBuilder as EnclaveBuilderVme, EnclaveSimulator, EnclaveSimulatorArgs, IdBlockArgs,
-    NitroEnclaves, Platform, SimulatorVmRunArgs, VmSimulator,
+    NitroEnclaves, Platform, SimulatorVmRunArgs, Standalone, StandaloneArgs, VmSimulator,
 };
 use log::info;
 use nitro_cli::common::commands_parser::RunEnclavesArgs as NitroRunArgs;
@@ -61,6 +61,7 @@ struct CommonArgs {
 enum Commands {
     AmdSevSnp(AmdSevSnpArgs),
     AwsNitro(AwsNitroArgs),
+    Standalone,
 }
 
 struct AmdSevSnpCli {
@@ -250,6 +251,9 @@ fn main() -> Result<()> {
                 common_args,
                 aws_nitro_args,
             })
+        }
+        Commands::Standalone => {
+            run_to_completion::<Standalone>(StandaloneArgs, Vec::new())
         }
     }
 }

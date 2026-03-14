@@ -9,6 +9,9 @@ pub use nitro::NitroEnclaves;
 mod enclave_simulator;
 pub use enclave_simulator::{EnclaveSimulator, EnclaveSimulatorArgs};
 
+mod standalone;
+pub use standalone::{Standalone, StandaloneArgs};
+
 pub trait Platform: Send + Sync {
     type RunArgs;
     type EnclaveDescriptor: EnclaveRuntime + Send + Sync;

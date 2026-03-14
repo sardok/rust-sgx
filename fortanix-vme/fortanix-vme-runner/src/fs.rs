@@ -95,13 +95,17 @@ impl VmeFs {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if let Ok(metadata) = entry.metadata() {
+                    // Check if it is a directory, continue otherwise.
+                    if !metadata.is_dir() {
+                        continue;
+                    }
+
                     if metadata.ino() == ino {
                         return Some(path);
                     }
-                    if metadata.is_dir() {
-                        if let Some(found) = self.find_dir_by_ino_recursive(&path, ino) {
-                            return Some(found);
-                        }
+
+                    if let Some(found) = self.find_dir_by_ino_recursive(&path, ino) {
+                        return Some(found);
                     }
                 }
             }
