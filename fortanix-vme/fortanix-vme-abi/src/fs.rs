@@ -12,6 +12,7 @@ pub enum FsOpRequest {
         parent: u64,
         name: String,
         metadata: Vec<u8>,
+        flags: i32,
     },
     GetAttr {
         ino: u64,
@@ -47,6 +48,7 @@ pub enum FsOpRequest {
     Write {
         ino: u64,
         content: Vec<u8>,
+        flags: i32,
     },
 }
 

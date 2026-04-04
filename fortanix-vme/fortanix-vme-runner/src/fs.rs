@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{Error, ErrorKind, Result as IoResult};
-use std::os::unix::fs::MetadataExt;
+use std::io::{Error, ErrorKind, Result as IoResult, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use fortanix_vme_abi::fs::{FsEntry, FsOpRequest, FsOpResponse};
@@ -20,8 +20,8 @@ impl VmeFs {
 
     pub fn handle_request(&self, request: FsOpRequest) -> IoResult<FsOpResponse> {
         match request {
-            FsOpRequest::Create { parent, name, metadata } => {
-                let entry = self.create(parent, name, metadata)?;
+            FsOpRequest::Create { parent, name, metadata, flags } => {
+                let entry = self.create(parent, name, metadata, flags)?;
                 Ok(FsOpResponse::GetAttr { entry })
             }
             FsOpRequest::GetAttr { ino } => {
@@ -48,8 +48,8 @@ impl VmeFs {
                 let entry = self.setattr(ino, metadata)?;
                 Ok(FsOpResponse::GetAttr { entry })
             }
-            FsOpRequest::Write { ino, content } => {
-                self.write(ino, content)?;
+            FsOpRequest::Write { ino, content, flags } => {
+                self.write(ino, content, flags)?;
                 Ok(FsOpResponse::Empty)
             }
             _ => {
@@ -59,13 +59,21 @@ impl VmeFs {
         }
     }
 
-    fn create(&self, parent: u64, name: String, meta: Vec<u8>) -> IoResult<FsEntry> {
+    fn create(&self, parent: u64, name: String, meta: Vec<u8>, flags: i32) -> IoResult<FsEntry> {
         let parent_path = self.find_dir_by_ino(parent)?;
         let path = parent_path.join(name);
 
-        match fs::File::create(&path) {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+
+        let sync_flags = nix::libc::O_SYNC | nix::libc::O_DSYNC;
+        if flags & sync_flags != 0 {
+            options.custom_flags(flags & sync_flags);
+        }
+
+        match options.open(&path) {
             Ok(_) => {
-                if let Err(err) = Self::write_meta_file_for_path(&path, &meta) {
+                if let Err(err) = Self::write_meta_file_for_path(&path, &meta, &options) {
                     let _ = fs::remove_file(path);
                     return Err(err);
                 }
@@ -108,7 +116,9 @@ impl VmeFs {
             return Err(Self::already_exists_err(path.to_string_lossy().into()));
         }
         fs::create_dir(&path)?;
-        if let Err(err) = Self::write_meta_file_for_path(&path, &meta) {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        if let Err(err) = Self::write_meta_file_for_path(&path, &meta, &options) {
             let _ = fs::remove_dir(path);
             return Err(err);
         }
@@ -145,15 +155,32 @@ impl VmeFs {
 
         // Ensure entry exists
         let _ = Self::read_fs_entry(&path)?;
-        Self::write_meta_file_for_path(&path, &metadata)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+
+        // If an application calls fchmod() or fchown() on a file opened with O_SYNC
+        // there is no way to know this, so we always set O_SYNC for setattr to ensure
+        // metadata updates are properly flushed to disk.
+        options.custom_flags(nix::libc::O_SYNC);
+        Self::write_meta_file_for_path(&path, &metadata, &options)?;
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
     }
 
-    fn write(&self, ino: u64, content: Vec<u8>) -> IoResult<()> {
+    fn write(&self, ino: u64, content: Vec<u8>, flags: i32) -> IoResult<()> {
         let path = self.find_dir_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
-        fs::write(path, &content)?;
+
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+
+        let sync_flags = nix::libc::O_SYNC | nix::libc::O_DSYNC;
+        if flags & sync_flags != 0 {
+            options.custom_flags(flags & sync_flags);
+        }
+
+        let mut file = options.open(path)?;
+        file.write_all(&content)?;
 
         Ok(())
     }
@@ -212,10 +239,11 @@ impl VmeFs {
         None
     }
 
-    fn write_meta_file_for_path(path: &PathBuf, content: &[u8]) -> IoResult<()> {
-        let mut meta_path = path.clone();
+    fn write_meta_file_for_path(path: &Path, content: &[u8], options: &fs::OpenOptions) -> IoResult<()> {
+        let mut meta_path = path.to_path_buf();
         meta_path.set_extension("meta");
-        fs::write(meta_path, content)?;
+        let mut file = options.open(meta_path)?;
+        file.write_all(content)?;
         Ok(())
     }
 
