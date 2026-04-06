@@ -151,6 +151,8 @@ pub enum Response {
     Init {
         args: Vec<String>,
     },
+    #[cfg(feature = "std")]
+    FileSystem(fs::FsOpResponse),
 }
 
 #[derive(Debug, PartialEq, Eq)]

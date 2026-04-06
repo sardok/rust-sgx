@@ -17,6 +17,9 @@ pub enum FsOpRequest {
     GetAttr {
         ino: u64,
     },
+    InitRoot {
+        metadata: Vec<u8>,
+    },
     Lookup {
         ino: u64,
         name: String,

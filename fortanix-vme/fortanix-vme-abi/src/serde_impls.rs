@@ -1028,6 +1028,8 @@ impl Serialize for Response {
                 SerializeStructVariant::serialize_field(&mut state, "args", args)?;
                 SerializeStructVariant::end(state)
             }
+            Response::FileSystem(ref __field0) =>
+                Serializer::serialize_newtype_variant(serializer, "Response", 7u32, "FileSystem", __field0),
         }
     }
 }
@@ -1046,6 +1048,7 @@ impl<'de> Deserialize<'de> for Response {
             Info,
             Failed,
             Init,
+            FileSystem,
         }
         struct ResponseFieldVisitor;
         impl<'de> Visitor<'de> for ResponseFieldVisitor {
@@ -1065,6 +1068,7 @@ impl<'de> Deserialize<'de> for Response {
                     "Info" => Ok(ResponseField::Info),
                     "Failed" => Ok(ResponseField::Failed),
                     "Init" => Ok(ResponseField::Init),
+                    "FileSystem" => Ok(ResponseField::FileSystem),
                     _ => Err(SerdeError::unknown_variant(value, VARIANTS)),
                 }
             }
@@ -1517,6 +1521,9 @@ impl<'de> Deserialize<'de> for Response {
                                 lifetime: PhantomData,
                             },
                         )
+                    }
+                    (ResponseField::FileSystem, variant) => {
+                        VariantAccess::newtype_variant::<fs::FsOpResponse>(variant).map(Response::FileSystem)
                     }
                 }
             }

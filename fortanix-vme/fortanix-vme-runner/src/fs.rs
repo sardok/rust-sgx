@@ -18,6 +18,21 @@ impl VmeFs {
         Self { root_path }
     }
 
+    pub fn initialize(&self) -> IoResult<()> {
+        if self.root_path.exists() {
+            if !self.root_path.is_dir() {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Root path {:?} exists but is not a directory", self.root_path),
+                ));
+            }
+        } else {
+            std::fs::create_dir_all(&self.root_path)?;
+        }
+
+        Ok(())
+    }
+
     pub fn handle_request(&self, request: FsOpRequest) -> IoResult<FsOpResponse> {
         match request {
             FsOpRequest::Create { parent, name, metadata, flags } => {
@@ -27,6 +42,10 @@ impl VmeFs {
             FsOpRequest::GetAttr { ino } => {
                 let entry = self.getattr(ino)?;
                 Ok(FsOpResponse::GetAttr { entry })
+            }
+            FsOpRequest::InitRoot { metadata } => {
+                self.initroot(metadata)?;
+                Ok(FsOpResponse::Empty)
             }
             FsOpRequest::Lookup { ino, name } => {
                 let entry = self.lookup(ino, name)?;
@@ -94,6 +113,16 @@ impl VmeFs {
         let path = self.find_dir_by_ino(ino)?;
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
+    }
+
+    fn initroot(&self, metadata: Vec<u8>) -> IoResult<()> {
+        if let Err(_) = Self::read_fs_entry(&self.root_path) {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            Self::write_meta_file_for_path(&self.root_path, &metadata, &options)?;
+        }
+
+        Ok(())
     }
 
     /// Locates a directory by given inode and returns `FsEntry` of

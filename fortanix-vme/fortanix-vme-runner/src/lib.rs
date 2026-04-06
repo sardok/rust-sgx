@@ -1,4 +1,5 @@
 #![deny(warnings)]
+use std::path::PathBuf;
 use enclave_runner::platform::{CommandConfiguration, EnclaveConfiguration, EnclavePlatform};
 use enclave_runner::stream_router::{AsyncListener, AsyncStream, StreamRouter};
 use fnv::FnvHashMap;
@@ -373,6 +374,7 @@ impl ClientConnection {
 }
 
 pub struct ServerState {
+    vme_fs: fs::VmeFs,
     forward_panics: bool,
     enclave_args: Vec<String>,
     command_listener: VsockListener,
@@ -804,7 +806,20 @@ impl ServerState {
                 error!("exit error: {:?}", e);
                 Err(e)
             }),
-            Request::FileSystem(_) => unimplemented!(),
+            Request::FileSystem(op_req) => {
+                match self.vme_fs.handle_request(op_req) {
+                    Ok(resp) => {
+                        conn.send(&Response::FileSystem(resp))
+                            .await
+                            .map_err(|e| VmeError::SystemError(e.raw_os_error().unwrap_or(5)))
+                    }
+                    Err(e) => {
+                        conn.send(&Response::Failed(e.into()))
+                            .await
+                            .map_err(|e| VmeError::SystemError(e.raw_os_error().unwrap_or(5)))
+                    }
+                }
+            }
         }
     }
 }
@@ -856,7 +871,12 @@ impl<P: Platform + 'static, Args: Into<P::RunArgs> + Send + 'static> EnclaveBuil
         let command_listener = VsockListener::bind(VsockAddr::new(VMADDR_CID_ANY, SERVER_PORT))?;
         let command_listener_local_addr = command_listener.local_addr()?;
 
+        let backend_path = std::env::var("VMEFS_BACKEND").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp/vmefs_backend"));
+        let vme_fs = fs::VmeFs::new(backend_path);
+        vme_fs.initialize()?;
+
         let state = Arc::new(ServerState {
+            vme_fs,
             forward_panics,
             enclave_args,
             command_listener,
