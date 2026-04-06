@@ -40,8 +40,8 @@ impl VmeFs {
                 let content = self.read(ino)?;
                 Ok(FsOpResponse::FileContent { content })
             }
-            FsOpRequest::ReadDir { ino } => {
-                let entries = self.readdir(ino)?;
+            FsOpRequest::ReadDir { ino, offset } => {
+                let entries = self.readdir(ino, offset)?;
                 Ok(FsOpResponse::ReadDir { entries })
             }
             FsOpRequest::SetAttr { ino, metadata } => {
@@ -128,11 +128,11 @@ impl VmeFs {
     }
 
     /// Iterates over files/directories and returns their metadata as a response.
-    fn readdir(&self, ino: u64) -> IoResult<Vec<FsEntry>> {
+    fn readdir(&self, ino: u64, offset: i64) -> IoResult<Vec<FsEntry>> {
         let path = self.find_dir_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
-        let mut entries = Vec::new();
+        let mut all_entries = Vec::new();
         let dir_entries = fs::read_dir(path)?;
 
         for dir_entry in dir_entries.flatten() {
@@ -142,10 +142,15 @@ impl VmeFs {
             }
 
             let entry = Self::read_fs_entry(&path)?;
-            entries.push(entry);
+            all_entries.push(entry);
         }
 
-        Ok(entries)
+        let offset = offset as usize;
+        if offset >= all_entries.len() {
+            Ok(Vec::new())
+        } else {
+            Ok(all_entries.into_iter().skip(offset).collect())
+        }
     }
 
     /// Fetches the related metafile associated with ino and updates metafile.

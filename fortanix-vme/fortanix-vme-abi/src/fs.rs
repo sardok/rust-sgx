@@ -32,6 +32,7 @@ pub enum FsOpRequest {
     },
     ReadDir {
         ino: u64,
+        offset: i64,
     },
     RmDir {
         ino: u64,
