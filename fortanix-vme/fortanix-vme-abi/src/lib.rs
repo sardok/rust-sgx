@@ -222,11 +222,11 @@ impl From<io::ErrorKind> for ErrorKind {
             io::ErrorKind::AlreadyExists => ErrorKind::AlreadyExists,
             io::ErrorKind::WouldBlock => ErrorKind::WouldBlock,
             // Unstable std library feature io_error_more
-            //io::ErrorKind::NotADirectory => ErrorKind::NotADirectory,
+            io::ErrorKind::NotADirectory => ErrorKind::NotADirectory,
             // Unstable std library feature io_error_more
-            //io::ErrorKind::IsADirectory => ErrorKind::IsADirectory,
+            io::ErrorKind::IsADirectory => ErrorKind::IsADirectory,
             // Unstable std library feature io_error_more
-            //io::ErrorKind::DirectoryNotEmpty => ErrorKind::DirectoryNotEmpty,
+            io::ErrorKind::DirectoryNotEmpty => ErrorKind::DirectoryNotEmpty,
             // Unstable std library feature io_error_more
             //io::ErrorKind::ReadOnlyFilesystem => ErrorKind::ReadOnlyFilesystem,
             // Unstable std library feature io_error_more
@@ -295,6 +295,9 @@ impl From<ErrorKind> for io::ErrorKind {
             ErrorKind::UnexpectedEof => io::ErrorKind::UnexpectedEof,
             ErrorKind::OutOfMemory => io::ErrorKind::OutOfMemory,
             ErrorKind::Other => io::ErrorKind::Other,
+            ErrorKind::DirectoryNotEmpty => io::ErrorKind::DirectoryNotEmpty,
+            ErrorKind::NotADirectory => io::ErrorKind::NotADirectory,
+            ErrorKind::IsADirectory => io::ErrorKind::IsADirectory,
             // TODO: Add missing entries.
             _ => io::ErrorKind::Other,
         }

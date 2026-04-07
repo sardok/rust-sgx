@@ -37,6 +37,12 @@ pub enum FsOpRequest {
         ino: u64,
         offset: i64,
     },
+    Rename {
+        parent: u64,
+        name: String,
+        new_parent: u64,
+        new_name: String,
+    },
     RmDir {
         ino: u64,
         name: String,

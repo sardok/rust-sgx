@@ -65,17 +65,25 @@ impl VmeFs {
                 let entries = self.readdir(ino, offset)?;
                 Ok(FsOpResponse::ReadDir { entries })
             }
+            FsOpRequest::Rename { parent, name, new_parent, new_name } => {
+                self.rename(parent, name, new_parent, new_name)?;
+                Ok(FsOpResponse::Empty)
+            }
+            FsOpRequest::RmDir { ino, name } => {
+                self.rmdir(ino, name)?;
+                Ok(FsOpResponse::Empty)
+            }
             FsOpRequest::SetAttr { ino, metadata } => {
                 let entry = self.setattr(ino, metadata)?;
                 Ok(FsOpResponse::GetAttr { entry })
             }
+            FsOpRequest::Unlink { ino, name } => {
+                self.unlink(ino, name)?;
+                Ok(FsOpResponse::Empty)
+            }
             FsOpRequest::Write { ino, content, flags } => {
                 self.write(ino, content, flags)?;
                 Ok(FsOpResponse::Empty)
-            }
-            _ => {
-                // Handle other requests (Create, Mkdir, Read, Write) as needed
-                unimplemented!()
             }
         }
     }
@@ -185,6 +193,75 @@ impl VmeFs {
         }
     }
 
+    fn rename(
+        &self,
+        parent: u64,
+        name: String,
+        new_parent: u64,
+        new_name: String,
+    ) -> Result<(), VmeError> {
+        let parent_path = self.find_dir_by_ino(parent)?;
+        assert!(!Self::is_metadata_file(&parent_path), "Metadata files should not be accessed directly.");
+
+        let new_parent_path = self.find_dir_by_ino(new_parent)?;
+        assert!(!Self::is_metadata_file(&new_parent_path), "Metadata files should not be accessed directly.");
+
+        let path = parent_path.join(name);
+        if !path.exists() {
+            log::warn!("Rename src '{:?}' could not be found.", path);
+            return Err(Self::file_not_found_err());
+        }
+
+        let path_meta = {
+            let mut path = path.clone();
+            path.set_extension("meta");
+            path
+        };
+        if !path_meta.exists() {
+            log::warn!("Rename src meta '{:?}' could not be found.", path_meta);
+            return Err(Self::file_not_found_err());
+        }
+
+        let new_path = new_parent_path.join(new_name);
+        let new_path_meta = {
+            let mut path = new_path.clone();
+            path.set_extension("meta");
+            path
+        };
+
+        fs::rename(path, new_path)?;
+        fs::rename(path_meta, new_path_meta)?;
+
+        Ok(())
+    }
+
+    fn rmdir(&self, ino: u64, name: String) -> Result<(), VmeError> {
+        let parent = self.find_dir_by_ino(ino)?;
+        assert!(!Self::is_metadata_file(&parent), "Metadata files should not be accessed directly.");
+
+        let path = parent.join(name);
+        if !path.exists() {
+            return Err(Self::file_not_found_err());
+        }
+        if !path.metadata()?.is_dir() {
+            return Err(Self::not_directory_err());
+        }
+
+        let meta = {
+            let mut path = path.clone();
+            path.set_extension("meta");
+            path
+        };
+        if !meta.exists() {
+            return Err(Self::file_not_found_err());
+        }
+
+        fs::remove_dir(path)?;
+        fs::remove_file(meta)?;
+
+        Ok(())
+    }
+
     /// Fetches the related metafile associated with ino and updates metafile.
     fn setattr(&self, ino: u64, metadata: Vec<u8>) -> Result<FsEntry, VmeError> {
         let path = self.find_dir_by_ino(ino)?;
@@ -202,6 +279,33 @@ impl VmeFs {
         Self::write_meta_file_for_path(&path, &metadata, &options)?;
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
+    }
+
+    fn unlink(&self, ino: u64, name: String) -> Result<(), VmeError> {
+        let parent = self.find_dir_by_ino(ino)?;
+        assert!(!Self::is_metadata_file(&parent), "Metadata files should not be accessed directly.");
+
+        let path = parent.join(name);
+        if !path.exists() {
+            return Err(Self::file_not_found_err());
+        }
+        if path.metadata()?.is_dir() {
+            return Err(Self::is_directory_err());
+        }
+
+        let meta = {
+            let mut path = path.clone();
+            path.set_extension("meta");
+            path
+        };
+        if !meta.exists() {
+            return Err(Self::file_not_found_err());
+        }
+
+        fs::remove_file(path)?;
+        fs::remove_file(meta)?;
+
+        Ok(())
     }
 
     fn write(&self, ino: u64, content: Vec<u8>, flags: i32) -> Result<(), VmeError> {
@@ -284,6 +388,18 @@ impl VmeFs {
 
     fn file_not_found_err() -> VmeError {
         VmeError::Command(ErrorKind::NotFound)
+    }
+
+    fn not_directory_err() -> VmeError {
+        VmeError::Command(ErrorKind::NotADirectory)
+    }
+
+    fn is_directory_err() -> VmeError {
+        VmeError::Command(ErrorKind::IsADirectory)
+    }
+
+    fn not_empty_err() -> VmeError {
+        VmeError::Command(ErrorKind::DirectoryNotEmpty)
     }
 
     fn already_exists_err() -> VmeError {
