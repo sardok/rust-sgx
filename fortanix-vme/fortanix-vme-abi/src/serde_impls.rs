@@ -1536,6 +1536,8 @@ impl<'de> Deserialize<'de> for Response {
             "Info",
             "Failed",
             "Init",
+            #[cfg(feature = "std")]
+            "FileSystem",
         ];
         Deserializer::deserialize_enum(
             deserializer,
