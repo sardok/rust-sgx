@@ -271,6 +271,36 @@ impl From<io::ErrorKind> for ErrorKind {
     }
 }
 
+#[cfg(feature = "std")]
+impl From<ErrorKind> for io::ErrorKind {
+    fn from(kind: ErrorKind) -> io::ErrorKind {
+        match kind {
+            ErrorKind::NotFound => io::ErrorKind::NotFound,
+            ErrorKind::PermissionDenied => io::ErrorKind::PermissionDenied,
+            ErrorKind::ConnectionRefused => io::ErrorKind::ConnectionRefused,
+            ErrorKind::ConnectionReset => io::ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted => io::ErrorKind::ConnectionAborted,
+            ErrorKind::NotConnected => io::ErrorKind::NotConnected,
+            ErrorKind::AddrInUse => io::ErrorKind::AddrInUse,
+            ErrorKind::AddrNotAvailable => io::ErrorKind::AddrNotAvailable,
+            ErrorKind::BrokenPipe => io::ErrorKind::BrokenPipe,
+            ErrorKind::AlreadyExists => io::ErrorKind::AlreadyExists,
+            ErrorKind::WouldBlock => io::ErrorKind::WouldBlock,
+            ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
+            ErrorKind::InvalidData => io::ErrorKind::InvalidData,
+            ErrorKind::TimedOut => io::ErrorKind::TimedOut,
+            ErrorKind::WriteZero => io::ErrorKind::WriteZero,
+            ErrorKind::Interrupted => io::ErrorKind::Interrupted,
+            ErrorKind::Unsupported => io::ErrorKind::Unsupported,
+            ErrorKind::UnexpectedEof => io::ErrorKind::UnexpectedEof,
+            ErrorKind::OutOfMemory => io::ErrorKind::OutOfMemory,
+            ErrorKind::Other => io::ErrorKind::Other,
+            // TODO: Add missing entries.
+            _ => io::ErrorKind::Other,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature="std", derive(thiserror::Error))]
 pub enum Error {

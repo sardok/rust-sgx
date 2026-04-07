@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{Error, ErrorKind, Result as IoResult, Write};
+use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+use fortanix_vme_abi::{Error as VmeError, ErrorKind};
 use fortanix_vme_abi::fs::{FsEntry, FsOpRequest, FsOpResponse};
+
+use crate::RunnerError;
 
 const ROOT_INO: u64 = 1;
 
@@ -18,11 +21,10 @@ impl VmeFs {
         Self { root_path }
     }
 
-    pub fn initialize(&self) -> IoResult<()> {
+    pub fn initialize(&self) -> Result<(), RunnerError> {
         if self.root_path.exists() {
             if !self.root_path.is_dir() {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
+                return Err(RunnerError::FilesystemError(
                     format!("Root path {:?} exists but is not a directory", self.root_path),
                 ));
             }
@@ -33,7 +35,7 @@ impl VmeFs {
         Ok(())
     }
 
-    pub fn handle_request(&self, request: FsOpRequest) -> IoResult<FsOpResponse> {
+    pub fn handle_request(&self, request: FsOpRequest) -> Result<FsOpResponse, VmeError> {
         match request {
             FsOpRequest::Create { parent, name, metadata, flags } => {
                 let entry = self.create(parent, name, metadata, flags)?;
@@ -78,7 +80,7 @@ impl VmeFs {
         }
     }
 
-    fn create(&self, parent: u64, name: String, meta: Vec<u8>, flags: i32) -> IoResult<FsEntry> {
+    fn create(&self, parent: u64, name: String, meta: Vec<u8>, flags: i32) -> Result<FsEntry, VmeError> {
         let parent_path = self.find_dir_by_ino(parent)?;
         let path = parent_path.join(name);
 
@@ -100,22 +102,23 @@ impl VmeFs {
                 let entry = Self::read_fs_entry(&path)?;
                 Ok(entry)
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
 
-    fn read(&self, ino: u64) -> IoResult<Vec<u8>> {
+    fn read(&self, ino: u64) -> Result<Vec<u8>, VmeError> {
         let path = self.find_dir_by_ino(ino)?;
-        fs::read(path)
+        let read = fs::read(path)?;
+        Ok(read)
     }
 
-    fn getattr(&self, ino: u64) -> IoResult<FsEntry> {
+    fn getattr(&self, ino: u64) -> Result<FsEntry, VmeError> {
         let path = self.find_dir_by_ino(ino)?;
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
     }
 
-    fn initroot(&self, metadata: Vec<u8>) -> IoResult<()> {
+    fn initroot(&self, metadata: Vec<u8>) -> Result<(), VmeError> {
         if let Err(_) = Self::read_fs_entry(&self.root_path) {
             let mut options = fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);
@@ -127,22 +130,22 @@ impl VmeFs {
 
     /// Locates a directory by given inode and returns `FsEntry` of
     /// the file child to the located directory.
-    fn lookup(&self, ino: u64, name: String) -> IoResult<FsEntry> {
+    fn lookup(&self, ino: u64, name: String) -> Result<FsEntry, VmeError> {
         let parent_path = self.find_dir_by_ino(ino)?;
         let path = parent_path.join(&name);
         if !path.exists() {
-            return Err(Self::file_not_found_err(format!("File not found {} in requested dir (ino: {})", name, ino)));
+            return Err(Self::file_not_found_err());
         }
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
     }
 
     /// Creates a directory along with its meta file.
-    fn mkdir(&self, ino: u64, name: String, meta: Vec<u8>) -> IoResult<FsEntry> {
+    fn mkdir(&self, ino: u64, name: String, meta: Vec<u8>) -> Result<FsEntry, VmeError> {
         let parent_path = self.find_dir_by_ino(ino)?;
         let path = parent_path.join(&name);
         if path.exists() {
-            return Err(Self::already_exists_err(path.to_string_lossy().into()));
+            return Err(Self::already_exists_err());
         }
         fs::create_dir(&path)?;
         let mut options = fs::OpenOptions::new();
@@ -157,7 +160,7 @@ impl VmeFs {
     }
 
     /// Iterates over files/directories and returns their metadata as a response.
-    fn readdir(&self, ino: u64, offset: i64) -> IoResult<Vec<FsEntry>> {
+    fn readdir(&self, ino: u64, offset: i64) -> Result<Vec<FsEntry>, VmeError> {
         let path = self.find_dir_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
@@ -183,7 +186,7 @@ impl VmeFs {
     }
 
     /// Fetches the related metafile associated with ino and updates metafile.
-    fn setattr(&self, ino: u64, metadata: Vec<u8>) -> IoResult<FsEntry> {
+    fn setattr(&self, ino: u64, metadata: Vec<u8>) -> Result<FsEntry, VmeError> {
         let path = self.find_dir_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
@@ -201,7 +204,7 @@ impl VmeFs {
         Ok(entry)
     }
 
-    fn write(&self, ino: u64, content: Vec<u8>, flags: i32) -> IoResult<()> {
+    fn write(&self, ino: u64, content: Vec<u8>, flags: i32) -> Result<(), VmeError> {
         let path = self.find_dir_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
@@ -223,13 +226,13 @@ impl VmeFs {
         path.extension() == Some(OsStr::new("meta"))
     }
 
-    fn read_fs_entry(path: &Path) -> IoResult<FsEntry> {
+    fn read_fs_entry(path: &Path) -> Result<FsEntry, VmeError> {
         let fs_metadata = path.metadata()?;
         let host_metadata = fs_metadata.into();
         let mut meta_path = path.to_path_buf();
         meta_path.set_extension("meta");
         if !meta_path.exists() {
-            return Err(Self::file_not_found_err(format!("Metadata file not found {:?}", path)));
+            return Err(Self::file_not_found_err());
         }
 
         let metadata = fs::read(meta_path)?;
@@ -240,13 +243,13 @@ impl VmeFs {
         })
     }
 
-    fn find_dir_by_ino(&self, ino: u64) -> IoResult<PathBuf> {
+    fn find_dir_by_ino(&self, ino: u64) -> Result<PathBuf, VmeError> {
         if ino == ROOT_INO {
             return Ok(self.root_path.clone());
         }
 
         self.find_dir_by_ino_recursive(&self.root_path, ino)
-            .ok_or_else(|| Self::file_not_found_err("Inode not found".to_owned()))
+            .ok_or_else(|| Self::file_not_found_err())
     }
 
     fn find_dir_by_ino_recursive(&self, path: &Path, ino: u64) -> Option<PathBuf> {
@@ -273,7 +276,7 @@ impl VmeFs {
         None
     }
 
-    fn write_meta_file_for_path(path: &Path, content: &[u8], options: &fs::OpenOptions) -> IoResult<()> {
+    fn write_meta_file_for_path(path: &Path, content: &[u8], options: &fs::OpenOptions) -> Result<(), VmeError> {
         let mut meta_path = path.to_path_buf();
         meta_path.set_extension("meta");
         let mut file = options.open(meta_path)?;
@@ -281,17 +284,11 @@ impl VmeFs {
         Ok(())
     }
 
-    fn file_not_found_err(msg: String) -> Error {
-        Error::new(
-            ErrorKind::NotFound,
-            msg,
-        )
+    fn file_not_found_err() -> VmeError {
+        VmeError::Command(ErrorKind::NotFound)
     }
 
-    fn already_exists_err(msg: String) -> Error {
-        Error::new(
-            ErrorKind::AlreadyExists,
-            msg,
-        )
+    fn already_exists_err() -> VmeError {
+        VmeError::Command(ErrorKind::AlreadyExists)
     }
 }

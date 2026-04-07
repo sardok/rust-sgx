@@ -59,6 +59,8 @@ pub enum RunnerError {
     NoAvailableCidFound,
     #[error("platform command error: {0}")]
     PlatformCommandError(ExitStatus),
+    #[error("filesystem error: {0}")]
+    FilesystemError(String),
 }
 
 impl From<VmeError> for RunnerError {
