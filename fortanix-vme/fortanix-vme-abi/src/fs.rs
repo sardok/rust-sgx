@@ -33,6 +33,9 @@ pub enum FsOpRequest {
     Read {
         ino: u64,
     },
+    Readlink {
+        ino: u64,
+    },
     ReadDir {
         ino: u64,
         offset: i64,
@@ -55,11 +58,31 @@ pub enum FsOpRequest {
         ino: u64,
         name: String,
     },
+    Symlink {
+        parent: u64,
+        name: String,
+        target: LinkTarget,
+        metadata: Vec<u8>,
+    },
+    Link {
+        ino: u64,
+        new_parent: u64,
+        new_name: String,
+        metadata: Vec<u8>,
+    },
     Write {
         ino: u64,
         content: Vec<u8>,
         flags: i32,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub enum LinkTarget {
+    // Absolute path
+    Absolute(String),
+    // Relative to the root_path
+    Relative(String),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -122,6 +145,9 @@ pub enum FsOpResponse {
     },
     FileContent {
         content: Vec<u8>,
+    },
+    Readlink {
+        target: Vec<u8>,
     },
     ReadDir {
         entries: Vec<FsEntry>,

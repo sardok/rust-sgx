@@ -3,10 +3,11 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 
 use fortanix_vme_abi::{Error as VmeError, ErrorKind};
-use fortanix_vme_abi::fs::{FsEntry, FsOpRequest, FsOpResponse};
+use fortanix_vme_abi::fs::{FsEntry, FsOpRequest, FsOpResponse, LinkTarget};
 
 use crate::RunnerError;
 
@@ -77,6 +78,18 @@ impl VmeFs {
                 let entry = self.setattr(ino, metadata)?;
                 Ok(FsOpResponse::GetAttr { entry })
             }
+            FsOpRequest::Symlink { parent, name, target, metadata } => {
+                let entry = self.symlink(parent, name, target, metadata)?;
+                Ok(FsOpResponse::GetAttr { entry })
+            }
+            FsOpRequest::Readlink { ino } => {
+                let target = self.readlink(ino)?;
+                Ok(FsOpResponse::Readlink { target })
+            }
+            FsOpRequest::Link { ino, new_parent, new_name, metadata } => {
+                let entry = self.link(ino, new_parent, new_name, metadata)?;
+                Ok(FsOpResponse::GetAttr { entry })
+            }
             FsOpRequest::Unlink { ino, name } => {
                 self.unlink(ino, name)?;
                 Ok(FsOpResponse::Empty)
@@ -89,7 +102,7 @@ impl VmeFs {
     }
 
     fn create(&self, parent: u64, name: String, meta: Vec<u8>, flags: i32) -> Result<FsEntry, VmeError> {
-        let parent_path = self.find_dir_by_ino(parent)?;
+        let parent_path = self.find_path_by_ino(parent)?;
         let path = parent_path.join(name);
 
         let mut options = fs::OpenOptions::new();
@@ -115,13 +128,13 @@ impl VmeFs {
     }
 
     fn read(&self, ino: u64) -> Result<Vec<u8>, VmeError> {
-        let path = self.find_dir_by_ino(ino)?;
+        let path = self.find_path_by_ino(ino)?;
         let read = fs::read(path)?;
         Ok(read)
     }
 
     fn getattr(&self, ino: u64) -> Result<FsEntry, VmeError> {
-        let path = self.find_dir_by_ino(ino)?;
+        let path = self.find_path_by_ino(ino)?;
         let entry = Self::read_fs_entry(&path)?;
         Ok(entry)
     }
@@ -139,7 +152,7 @@ impl VmeFs {
     /// Locates a directory by given inode and returns `FsEntry` of
     /// the file child to the located directory.
     fn lookup(&self, ino: u64, name: String) -> Result<FsEntry, VmeError> {
-        let parent_path = self.find_dir_by_ino(ino)?;
+        let parent_path = self.find_path_by_ino(ino)?;
         let path = parent_path.join(&name);
         if !path.exists() {
             return Err(Self::file_not_found_err());
@@ -150,7 +163,7 @@ impl VmeFs {
 
     /// Creates a directory along with its meta file.
     fn mkdir(&self, ino: u64, name: String, meta: Vec<u8>) -> Result<FsEntry, VmeError> {
-        let parent_path = self.find_dir_by_ino(ino)?;
+        let parent_path = self.find_path_by_ino(ino)?;
         let path = parent_path.join(&name);
         if path.exists() {
             return Err(Self::already_exists_err());
@@ -169,7 +182,7 @@ impl VmeFs {
 
     /// Iterates over files/directories and returns their metadata as a response.
     fn readdir(&self, ino: u64, offset: i64) -> Result<Vec<FsEntry>, VmeError> {
-        let path = self.find_dir_by_ino(ino)?;
+        let path = self.find_path_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
         let mut all_entries = Vec::new();
@@ -200,10 +213,10 @@ impl VmeFs {
         new_parent: u64,
         new_name: String,
     ) -> Result<(), VmeError> {
-        let parent_path = self.find_dir_by_ino(parent)?;
+        let parent_path = self.find_path_by_ino(parent)?;
         assert!(!Self::is_metadata_file(&parent_path), "Metadata files should not be accessed directly.");
 
-        let new_parent_path = self.find_dir_by_ino(new_parent)?;
+        let new_parent_path = self.find_path_by_ino(new_parent)?;
         assert!(!Self::is_metadata_file(&new_parent_path), "Metadata files should not be accessed directly.");
 
         let path = parent_path.join(name);
@@ -236,7 +249,7 @@ impl VmeFs {
     }
 
     fn rmdir(&self, ino: u64, name: String) -> Result<(), VmeError> {
-        let parent = self.find_dir_by_ino(ino)?;
+        let parent = self.find_path_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&parent), "Metadata files should not be accessed directly.");
 
         let path = parent.join(name);
@@ -264,7 +277,7 @@ impl VmeFs {
 
     /// Fetches the related metafile associated with ino and updates metafile.
     fn setattr(&self, ino: u64, metadata: Vec<u8>) -> Result<FsEntry, VmeError> {
-        let path = self.find_dir_by_ino(ino)?;
+        let path = self.find_path_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
         // Ensure entry exists
@@ -282,7 +295,7 @@ impl VmeFs {
     }
 
     fn unlink(&self, ino: u64, name: String) -> Result<(), VmeError> {
-        let parent = self.find_dir_by_ino(ino)?;
+        let parent = self.find_path_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&parent), "Metadata files should not be accessed directly.");
 
         let path = parent.join(name);
@@ -309,7 +322,7 @@ impl VmeFs {
     }
 
     fn write(&self, ino: u64, content: Vec<u8>, flags: i32) -> Result<(), VmeError> {
-        let path = self.find_dir_by_ino(ino)?;
+        let path = self.find_path_by_ino(ino)?;
         assert!(!Self::is_metadata_file(&path), "Metadata files should not be accessed directly.");
 
         let mut options = fs::OpenOptions::new();
@@ -347,16 +360,48 @@ impl VmeFs {
         })
     }
 
-    fn find_dir_by_ino(&self, ino: u64) -> Result<PathBuf, VmeError> {
+    fn link(&self, ino: u64, new_parent: u64, new_name: String, meta: Vec<u8>) -> Result<FsEntry, VmeError> {
+        let path = self.find_path_by_ino(ino)?;
+        let parent_path = self.find_path_by_ino(new_parent)?;
+        let new_path = parent_path.join(new_name);
+        fs::hard_link(path, &new_path)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        Self::write_meta_file_for_path(&new_path, &meta, &options)?;
+        Self::read_fs_entry(&new_path)
+    }
+
+    fn readlink(&self, ino: u64) -> Result<Vec<u8>, VmeError> {
+        let path = self.find_path_by_ino(ino)?;
+        eprintln!("Reading link: {:?}", path);
+        let target = fs::read(path)?;
+        Ok(target)
+    }
+
+    fn symlink(&self, parent: u64, name: String, target: LinkTarget, meta: Vec<u8>) -> Result<FsEntry, VmeError> {
+        let parent_path = self.find_path_by_ino(parent)?;
+        let path = parent_path.join(name);
+        let target = match target {
+            LinkTarget::Absolute(target) => Path::new(&target).to_path_buf(),
+            LinkTarget::Relative(target) => self.root_path.join(target),
+        };
+        unix_fs::symlink(target, &path)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        Self::write_meta_file_for_path(&path, &meta, &options)?;
+        Self::read_fs_entry(&path)
+    }
+
+    fn find_path_by_ino(&self, ino: u64) -> Result<PathBuf, VmeError> {
         if ino == ROOT_INO {
             return Ok(self.root_path.clone());
         }
 
-        self.find_dir_by_ino_recursive(&self.root_path, ino)
+        self.find_path_by_ino_recursive(&self.root_path, ino)
             .ok_or_else(|| Self::file_not_found_err())
     }
 
-    fn find_dir_by_ino_recursive(&self, path: &Path, ino: u64) -> Option<PathBuf> {
+    fn find_path_by_ino_recursive(&self, path: &Path, ino: u64) -> Option<PathBuf> {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -367,7 +412,7 @@ impl VmeFs {
 
                     // DFS for directories
                     if metadata.is_dir() {
-                        if let Some(found) = self.find_dir_by_ino_recursive(&path, ino) {
+                        if let Some(found) = self.find_path_by_ino_recursive(&path, ino) {
                             return Some(found);
                         }
                     }
